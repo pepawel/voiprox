@@ -5,54 +5,6 @@ import sys
 import pjsua as pj
 import re
 
-# Algorytm:
-# * czekamy na połączenie na koncie incoming
-# * gdy pojawi się dzwonek tworzymy nowe entry i wyodrębniamy numer
-# * dzwonimy na numer przez konto outgoing
-# * w momencie odebrania słuchawki na outgoing odbieramy słuchawkę na incoming
-# * łączymy sloty połączenia incoming ze slotami połączenia outgoing
-# * łączymy slot lokalnego głośnika ze slotami mikrofonu incoming i outgoing
-# * łączymy slot playera ze slotami słuchawki incoming i outgoing
-# * łączymy slot recordera ze slotami mikrofonu incoming i outgoing
-#
-# Powyższe czynności są wykonywane dla każdego połączenia -- nie ma sygnału
-# zajętości.
-# connections = []
-# connections[0] = {'incoming': incoming_call, 'outgoing': outgoing_call}
-# connection.incoming
-# connection.outgoing
-#
-# Gdy przychodzi dzwonek na incoming to tworzony jest obiekt Connection
-# connection = Connection(call)
-#
-# Przy inicjalizacji obiektu Connection tworzony jest obiekt
-# InCallCallback(connection) i podawany jako callback dla danego calla.
-# Dodatkowo w zmiennej klasy connections (hash) dodawane jest aktualne połączenie
-# wraz z id (liczba).
-# Call jest zapisywany w obiekcie Connection w polu incoming_call.
-# Następnie wyodrębniany jest numer źródłowy i docelowy i zapisywany w obiekcie
-# Connection.
-# Tworzymy OutCallCallBack(connection) -- przekazujemy aktualny obiekt Connection.
-# Potem wykonywany jest nowy call na numer docelowy. Ten call jest zapisywany
-# w obiekcie Connection jako outgoing_call.
-#
-# W OutCallBacku dla nowo utworzonego Calla jest sprawdzane,
-# czy stan zmienił się na CONFIRMED. Jeśli tak, to na connectionie jest
-# wykonywana metoda "bridge" na obiekcie connection powiązanym z danym
-# CallCallBackiem.
-#
-# Connection#bridge sprawdza czy oba calle są w dobrym stanie,
-# odbiera słuchawkę incoming, sprawdza czy media state incoming jest dobry
-# i łączy sloty incoming i outgoing.
-#
-# W InCallCallBack i OutCallCallback sprawdzane jest czy rozmowa się nie zakończyła
-# -- jeśli tak to wywoływane jest connection.destroy(), który rozłącza
-# drugą stronę. Dodatkowo połączenie kasowane jest z hasha połączeń.
-#
-# Program wyświetla log zachodzących operacji. Dodatkowo można go kontrolować
-# podając komendy: j <numer połączenia> (jak join), l <jak list -- lista połączeń)
-# q -- quit, d <numer połączenia> (disconnect), u <numer połączenia> -- unjoin
-
 class Connection:
   collection = {}
 
@@ -207,22 +159,24 @@ try:
   if len(sys.argv) != 3:
     print "Usage:"
     print "  voiprox incoming_account outgoing_account\n"
-    print "Account has to be specified as username:password@sip_server"
-    print "If your username or password has : or @ signs then you are out of luck."
+    print "Account has to be specified as username:password"
+    print 'If your username or password has ":" sign then you are out of luck.'
 
-  in_params = re.split('[:@]', sys.argv[1])
-  in_user, in_pass, in_server = in_params
-  if len(in_params) != 3:
+  in_params = sys.argv[1].split(':')
+  if len(in_params) != 2:
     print "Invalid incoming account specification"
-  out_params = re.split('[:@]', sys.argv[2])
-  if len(out_params) != 3:
+  in_user, in_pass = in_params
+
+  out_params = sys.argv[2].split(':')
+  if len(out_params) != 2:
     print "Invalid outgoing account specification"
-  out_user, out_pass, out_server = out_params
+  out_user, out_pass = out_params
 
   # Sig in
-  incoming_account = pj.AccountConfig(in_server, in_user, in_pass)
+  sip_server = 'sip.freeconet.pl' # hardcoded, because not tested with other servers
+  incoming_account = pj.AccountConfig(sip_server, in_user, in_pass)
   incoming_account = lib.create_account(incoming_account, cb=InAccountCallback())
-  outgoing_account = pj.AccountConfig(out_server, out_user, out_pass)
+  outgoing_account = pj.AccountConfig(sip_server, out_user, out_pass)
   outgoing_account = lib.create_account(outgoing_account, cb=OutAccountCallback())
 
   print 'VOIPROX 1.0 ready to intercept calls.'
@@ -288,6 +242,8 @@ try:
     else:
       print 'Unrecognized command, type "help" for a list of valid commands.'
 
+  print 'Exiting... ',
+  sys.stdout.flush()
   # Shutdown the library
   incoming_transport = None
   outgoing_transport = None
@@ -297,6 +253,7 @@ try:
   outgoing_account = None
   lib.destroy()
   lib = None
+  print 'done.'
 
 except pj.Error, e:
   print "Exception: " + str(e)
