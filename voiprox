@@ -4,6 +4,7 @@
 import sys
 import pjsua as pj
 import re
+import logging as log
 
 class Connection:
   collection = {}
@@ -44,11 +45,11 @@ class Connection:
     out_cb = OutCallCallback(self)
     uri = self.sip_uri(self.outgoing_number)
     global outgoing_account
-    print "Calling {0}...".format(self.outgoing_number)
+    log.debug("Calling {0}...".format(self.outgoing_number))
     self.outgoing_call = outgoing_account.make_call(uri, cb = out_cb)
 
   def answer_incoming(self):
-    print "Answering incoming call"
+    log.debug("Answering incoming call")
     self.incoming_call.answer()
 
   def bridge(self, callback):
@@ -56,8 +57,8 @@ class Connection:
       self.active_incoming = True
     if isinstance(callback, OutCallCallback):
       self.active_outgoing = True
-    print "Incoming: {0}, Outgoing: {1}".format(self.active_incoming,
-        self.active_outgoing)
+    log.debug("Incoming: {0}, Outgoing: {1}".format(self.active_incoming,
+        self.active_outgoing))
     if self.active_incoming and self.active_outgoing:
       in_slot = self.incoming_call.info().conf_slot
       out_slot = self.outgoing_call.info().conf_slot
@@ -73,7 +74,7 @@ class Connection:
       recorder_slot = lib.recorder_get_slot(recorder)
       lib.conf_connect(in_slot, recorder_slot)
       lib.conf_connect(out_slot, recorder_slot)
-      print 'Calls bridged'
+      log.debug('Calls bridged')
 
   def terminate(self):
     lck = lib.auto_lock()
@@ -84,7 +85,7 @@ class Connection:
       if self.outgoing_call.info().state != pj.CallState.DISCONNECTED:
         self.outgoing_call.hangup()
       del Connection.collection[self.id]
-      print "Terminated connection {0}".format(self.id)
+      log.debug("Terminated connection {0}".format(self.id))
     del lck
 
   def extract_number(self, text):
@@ -134,9 +135,42 @@ class OutCallCallback(GlobCallCallback):
     if self.call.info().state == pj.CallState.CONFIRMED:
       self.connection.answer_incoming()
 
-# Logging callback
+
+# Logging callback for PJSIP library
 def log_cb(level, str, len):
-  print str,
+  log.debug(str),
+
+# Parse arguments
+args = sys.argv[1:]
+try:
+  args.index('-v')
+except ValueError:
+  log.basicConfig(level = log.FATAL)
+  pj_debug = 0
+else:
+  log.basicConfig(level = log.DEBUG)
+  pj_debug = 2
+
+args = [e for e in args if e != '-v']
+
+if len(args) != 2:
+  print 'Usage:'
+  print "  voiprox [-v] incoming_account outgoing_account\n"
+  print 'Account has to be specified as username:password'
+  print 'If your username or password has ":" sign then you are out of luck.'
+  print 'Add -v for verbose/debug mode.'
+  print 'Currently sip server is harcoded to sip.freeconet.pl.'
+  exit(1)
+
+in_params = args[0].split(':')
+if len(in_params) != 2:
+  print "Invalid incoming account specification"
+in_user, in_pass = in_params
+
+out_params = args[1].split(':')
+if len(out_params) != 2:
+  print "Invalid outgoing account specification"
+out_user, out_pass = out_params
 
 # Create library instance
 lib = pj.Lib()
@@ -144,7 +178,7 @@ lib = pj.Lib()
 try:
   # Init library with default config and some customized
   # logging config.
-  lib.init(log_cfg = pj.LogConfig(level=0, callback=log_cb))
+  lib.init(log_cfg = pj.LogConfig(level=pj_debug, callback=log_cb))
 
   # Create UDP incoming_transport which listens to any available port
   incoming_transport = lib.create_transport(pj.TransportType.UDP,
@@ -154,23 +188,6 @@ try:
 
   # Start the library
   lib.start()
-
-  # Parse arguments
-  if len(sys.argv) != 3:
-    print "Usage:"
-    print "  voiprox incoming_account outgoing_account\n"
-    print "Account has to be specified as username:password"
-    print 'If your username or password has ":" sign then you are out of luck.'
-
-  in_params = sys.argv[1].split(':')
-  if len(in_params) != 2:
-    print "Invalid incoming account specification"
-  in_user, in_pass = in_params
-
-  out_params = sys.argv[2].split(':')
-  if len(out_params) != 2:
-    print "Invalid outgoing account specification"
-  out_user, out_pass = out_params
 
   # Sig in
   sip_server = 'sip.freeconet.pl' # hardcoded, because not tested with other servers
@@ -213,13 +230,14 @@ try:
     except TypeError, ValueError:
       pass
 
-    print "c: {0}, p1: {1}, p2: {2}".format(c, p1, p2)
+    log.debug("c: {0}, p1: {1}, p2: {2}".format(c, p1, p2))
 
     # Commands processing logic goes here
     if c == 'quit' or c == 'exit':
       break
     elif c == 'list' or c == 'show':
-      pass
+      for connection in Connection.all():
+        print connection
     elif c == 'disconnect':
       pass
     elif c == 'attach':
