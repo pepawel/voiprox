@@ -225,9 +225,68 @@ try:
   outgoing_account = pj.AccountConfig(out_server, out_user, out_pass)
   outgoing_account = lib.create_account(outgoing_account, cb=OutAccountCallback())
 
-  print 'Ready to intercept calls.'
-  print 'Type "help" to get command list.'
-  sys.stdin.readline()
+  print 'VOIPROX 1.0 ready to intercept calls.'
+  print 'Type "help" for a list of commands.'
+
+  # Start command loop
+  while(1):
+    try:
+      input = raw_input('>> ')
+    except EOFError:
+      print 'exit'
+      break
+
+    if input == '':
+      continue
+
+    # Extract command c, param1 p1 and param2 p2
+    splitted = map(lambda x:x.lower(), input.split())
+    c = splitted[0]
+    params = [e for e in splitted[1:] if (e != 'to') and (e != 'from')]
+    p1 = p2 = None
+    if len(params) > 0:
+      p1 = params[0]
+    if len(params) > 1:
+      p2 = params[1]
+
+    # Typecast p1 and p2 to integers if possible
+    try:
+      p1 = int(p1)
+    except TypeError, ValueError:
+      pass
+    try:
+      p2 = int(p2)
+    except TypeError, ValueError:
+      pass
+
+    print "c: {0}, p1: {1}, p2: {2}".format(c, p1, p2)
+
+    # Commands processing logic goes here
+    if c == 'quit' or c == 'exit':
+      break
+    elif c == 'list' or c == 'show':
+      pass
+    elif c == 'disconnect':
+      pass
+    elif c == 'attach':
+      pass
+    elif c == 'detach':
+      pass
+    elif c == 'help':
+      print "Possible commands:"
+      print "  list, show       - show all active connections"
+      print "  disconnect [[caller|callee] [from]] connection"
+      print "                   - disconnect caller or calee from connection given by"
+      print "                     connection id; if caller/callee not given entire "
+      print "                     connection is terminated"
+      print "  attach [mic|speaker] [to] connection"
+      print "                   - attach local microphone or speaker to given connection;"
+      print "                     if mic/speaker keyword not given both will be attached"
+      print "  detach [mic|speaker] [from] connection - analogical to attach"
+      print "  help             - show this help"
+      print "  quit, exit or ^D - terminate all active connections and quit"
+    else:
+      print 'Unrecognized command, type "help" for a list of valid commands.'
 
   # Shutdown the library
   incoming_transport = None
