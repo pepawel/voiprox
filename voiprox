@@ -1,0 +1,245 @@
+#!/usr/bin/python
+# coding=utf-8
+
+import sys
+import pjsua as pj
+import re
+
+# Algorytm:
+# * czekamy na połączenie na koncie incoming
+# * gdy pojawi się dzwonek tworzymy nowe entry i wyodrębniamy numer
+# * dzwonimy na numer przez konto outgoing
+# * w momencie odebrania słuchawki na outgoing odbieramy słuchawkę na incoming
+# * łączymy sloty połączenia incoming ze slotami połączenia outgoing
+# * łączymy slot lokalnego głośnika ze slotami mikrofonu incoming i outgoing
+# * łączymy slot playera ze slotami słuchawki incoming i outgoing
+# * łączymy slot recordera ze slotami mikrofonu incoming i outgoing
+#
+# Powyższe czynności są wykonywane dla każdego połączenia -- nie ma sygnału
+# zajętości.
+# connections = []
+# connections[0] = {'incoming': incoming_call, 'outgoing': outgoing_call}
+# connection.incoming
+# connection.outgoing
+#
+# Gdy przychodzi dzwonek na incoming to tworzony jest obiekt Connection
+# connection = Connection(call)
+#
+# Przy inicjalizacji obiektu Connection tworzony jest obiekt
+# InCallCallback(connection) i podawany jako callback dla danego calla.
+# Dodatkowo w zmiennej klasy connections (hash) dodawane jest aktualne połączenie
+# wraz z id (liczba).
+# Call jest zapisywany w obiekcie Connection w polu incoming_call.
+# Następnie wyodrębniany jest numer źródłowy i docelowy i zapisywany w obiekcie
+# Connection.
+# Tworzymy OutCallCallBack(connection) -- przekazujemy aktualny obiekt Connection.
+# Potem wykonywany jest nowy call na numer docelowy. Ten call jest zapisywany
+# w obiekcie Connection jako outgoing_call.
+#
+# W OutCallBacku dla nowo utworzonego Calla jest sprawdzane,
+# czy stan zmienił się na CONFIRMED. Jeśli tak, to na connectionie jest
+# wykonywana metoda "bridge" na obiekcie connection powiązanym z danym
+# CallCallBackiem.
+#
+# Connection#bridge sprawdza czy oba calle są w dobrym stanie,
+# odbiera słuchawkę incoming, sprawdza czy media state incoming jest dobry
+# i łączy sloty incoming i outgoing.
+#
+# W InCallCallBack i OutCallCallback sprawdzane jest czy rozmowa się nie zakończyła
+# -- jeśli tak to wywoływane jest connection.destroy(), który rozłącza
+# drugą stronę. Dodatkowo połączenie kasowane jest z hasha połączeń.
+#
+# Program wyświetla log zachodzących operacji. Dodatkowo można go kontrolować
+# podając komendy: j <numer połączenia> (jak join), l <jak list -- lista połączeń)
+# q -- quit, d <numer połączenia> (disconnect), u <numer połączenia> -- unjoin
+
+class Connection:
+  collection = {}
+
+  @staticmethod
+  def create_if_new(incoming_call):
+    for connection in Connection.collection.values():
+      if connection.incoming_call.info().sip_call_id == incoming_call.info().sip_call_id:
+        return
+    connection = Connection(incoming_call)
+    return connection
+
+  def __init__(self, incoming_call):
+    # Save the connection in class collection
+    if len(Connection.collection) == 0:
+      self.id = 0
+    else:
+      self.id = max(Connection.collection.keys()) + 1
+    Connection.collection[self.id] = self
+
+    # Mark calls as inactive
+    self.active_incoming = False
+    self.active_outgoing = False
+
+    # Mark connection as not terminated
+    self.terminated = False
+
+    # Save incoming call parameters
+    self.incoming_call = incoming_call
+
+    self.incoming_number = self.extract_number(incoming_call.info().remote_uri)
+    self.outgoing_number = self.extract_number(incoming_call.info().uri)
+
+    # Create incoming call callback and set it on call
+    incoming_call.set_callback(InCallCallback(self))
+
+    # Create outgoing call
+    out_cb = OutCallCallback(self)
+    uri = self.sip_uri(self.outgoing_number)
+    global outgoing_account
+    print "Calling {0}...".format(self.outgoing_number)
+    self.outgoing_call = outgoing_account.make_call(uri, cb = out_cb)
+
+  def answer_incoming(self):
+    print "Answering incoming call"
+    self.incoming_call.answer()
+
+  def bridge(self, callback):
+    if isinstance(callback, InCallCallback):
+      self.active_incoming = True
+    if isinstance(callback, OutCallCallback):
+      self.active_outgoing = True
+    print "Incoming: {0}, Outgoing: {1}".format(self.active_incoming,
+        self.active_outgoing)
+    if self.active_incoming and self.active_outgoing:
+      in_slot = self.incoming_call.info().conf_slot
+      out_slot = self.outgoing_call.info().conf_slot
+      lib = pj.Lib.instance()
+      lib.conf_connect(in_slot, out_slot)
+      lib.conf_connect(out_slot, in_slot)
+      # Realtime sniffing
+      #lib.conf_connect(in_slot, 0)
+      #lib.conf_connect(out_slot, 0)
+      # Recording
+      recorder = lib.create_recorder("{0}-{1}-{2}.wav".format(self.id,
+        self.incoming_number, self.outgoing_number))
+      recorder_slot = lib.recorder_get_slot(recorder)
+      lib.conf_connect(in_slot, recorder_slot)
+      lib.conf_connect(out_slot, recorder_slot)
+      print 'Calls bridged'
+
+  def terminate(self):
+    lck = lib.auto_lock()
+    if not self.terminated:
+      self.terminated = True
+      if self.incoming_call.info().state != pj.CallState.DISCONNECTED:
+        self.incoming_call.hangup()
+      if self.outgoing_call.info().state != pj.CallState.DISCONNECTED:
+        self.outgoing_call.hangup()
+      del Connection.collection[self.id]
+      print "Terminated connection {0}".format(self.id)
+    del lck
+
+  def extract_number(self, text):
+    return re.match('^.*sip:(.+)@.+.freeconet.pl.*$', text).group(1)
+
+  def sip_uri(self, number):
+    return "sip:{0}@sip.freeconet.pl".format(number)
+
+  def __str__(self):
+    return "{0}: {1} > {2}".format(
+      self.id, self.incoming_number, self.outgoing_number
+    )
+
+  @staticmethod
+  def all():
+    result = []
+    for i in sorted(Connection.collection.keys()):
+      result.append(Connection.collection[i])
+    return result
+
+class GlobAccountCallback(pj.AccountCallback):
+  pass
+
+class OutAccountCallback(GlobAccountCallback):
+  pass
+
+class InAccountCallback(GlobAccountCallback):
+  def on_incoming_call(self, call):
+    Connection.create_if_new(call)
+
+class GlobCallCallback(pj.CallCallback):
+  def __init__(self, connection):
+    self.connection = connection
+  def on_media_state(self):
+    if self.call.info().media_state == pj.MediaState.ACTIVE:
+      self.connection.bridge(self)
+  def on_state(self):
+    if self.call.info().state == pj.CallState.DISCONNECTED:
+      self.connection.terminate()
+
+class InCallCallback(GlobCallCallback):
+  pass
+
+class OutCallCallback(GlobCallCallback):
+  def on_state(self):
+    GlobCallCallback.on_state(self)
+    if self.call.info().state == pj.CallState.CONFIRMED:
+      self.connection.answer_incoming()
+
+# Logging callback
+def log_cb(level, str, len):
+  print str,
+
+# Create library instance
+lib = pj.Lib()
+
+try:
+  # Init library with default config and some customized
+  # logging config.
+  lib.init(log_cfg = pj.LogConfig(level=0, callback=log_cb))
+
+  # Create UDP incoming_transport which listens to any available port
+  incoming_transport = lib.create_transport(pj.TransportType.UDP,
+                                   pj.TransportConfig(0))
+  outgoing_transport = lib.create_transport(pj.TransportType.UDP,
+                                   pj.TransportConfig(0))
+
+  # Start the library
+  lib.start()
+
+  # Parse arguments
+  if len(sys.argv) != 3:
+    print "Usage:"
+    print "  voiprox incoming_account outgoing_account\n"
+    print "Account has to be specified as username:password@sip_server"
+    print "If your username or password has : or @ signs then you are out of luck."
+
+  in_params = re.split('[:@]', sys.argv[1])
+  in_user, in_pass, in_server = in_params
+  if len(in_params) != 3:
+    print "Invalid incoming account specification"
+  out_params = re.split('[:@]', sys.argv[2])
+  if len(out_params) != 3:
+    print "Invalid outgoing account specification"
+  out_user, out_pass, out_server = out_params
+
+  # Sig in
+  incoming_account = pj.AccountConfig(in_server, in_user, in_pass)
+  incoming_account = lib.create_account(incoming_account, cb=InAccountCallback())
+  outgoing_account = pj.AccountConfig(out_server, out_user, out_pass)
+  outgoing_account = lib.create_account(outgoing_account, cb=OutAccountCallback())
+
+  print 'Ready to intercept calls.'
+  print 'Type "help" to get command list.'
+  sys.stdin.readline()
+
+  # Shutdown the library
+  incoming_transport = None
+  outgoing_transport = None
+  incoming_account.delete()
+  outgoing_account.delete()
+  incoming_account = None
+  outgoing_account = None
+  lib.destroy()
+  lib = None
+
+except pj.Error, e:
+  print "Exception: " + str(e)
+  lib.destroy()
+  lib = None
