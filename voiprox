@@ -131,6 +131,7 @@ class InCallCallback(GlobCallCallback):
 
 class OutCallCallback(GlobCallCallback):
   def on_state(self):
+    log.debug("Call state changed: {0}".format(self.call.info().state_text))
     GlobCallCallback.on_state(self)
     if self.call.info().state == pj.CallState.CONFIRMED:
       self.connection.answer_incoming()
@@ -229,8 +230,6 @@ try:
       p2 = int(p2)
     except TypeError, ValueError:
       pass
-
-    log.debug("c: {0}, p1: {1}, p2: {2}".format(c, p1, p2))
 
     # Commands processing logic goes here
     if c == 'quit' or c == 'exit':
