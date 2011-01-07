@@ -29,6 +29,9 @@ class Connection:
     self.active_incoming = False
     self.active_outgoing = False
 
+    # Mark as calling (will be removed when bridged)
+    self.calling = True
+
     # Mark connection as not terminated
     self.terminated = False
 
@@ -74,6 +77,7 @@ class Connection:
       recorder_slot = lib.recorder_get_slot(recorder)
       lib.conf_connect(in_slot, recorder_slot)
       lib.conf_connect(out_slot, recorder_slot)
+      self.calling = False
       log.debug('Calls bridged')
 
   def terminate(self):
@@ -95,8 +99,9 @@ class Connection:
     return "sip:{0}@sip.freeconet.pl".format(number)
 
   def __str__(self):
-    return "{0}: {1} > {2}".format(
-      self.id, self.incoming_number, self.outgoing_number
+    return "{0}: {1} > {2}{3}".format(
+        self.id, self.incoming_number, self.outgoing_number,
+        (' (calling)' if self.calling else '')
     )
 
   @staticmethod
@@ -105,6 +110,12 @@ class Connection:
     for i in sorted(Connection.collection.keys()):
       result.append(Connection.collection[i])
     return result
+
+  @staticmethod
+  def terminate_all():
+    for connection in Connection.all():
+      connection.terminate()
+
 
 class GlobAccountCallback(pj.AccountCallback):
   pass
@@ -259,6 +270,7 @@ try:
     else:
       print 'Unrecognized command, type "help" for a list of valid commands.'
 
+  Connection.terminate_all()
   print 'Exiting... ',
   sys.stdout.flush()
   # Shutdown the library
