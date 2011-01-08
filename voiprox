@@ -91,6 +91,32 @@ class Connection:
       lib.conf_connect(slot, 0)
       self.speaker_attached = True
 
+  def detach(self):
+    self.detach_mic()
+    self.detach_speaker()
+
+  def detach_mic(self):
+    lib = pj.Lib.instance()
+    if self.active_incoming:
+      slot = self.incoming_call.info().conf_slot
+      lib.conf_disconnect(0, slot)
+      self.mic_attached = False
+    if self.active_outgoing:
+      slot = self.outgoing_call.info().conf_slot
+      lib.conf_disconnect(0, slot)
+      self.mic_attached = False
+
+  def detach_speaker(self):
+    lib = pj.Lib.instance()
+    if self.active_incoming:
+      slot = self.incoming_call.info().conf_slot
+      lib.conf_disconnect(slot, 0)
+      self.speaker_attached = False
+    if self.active_outgoing:
+      slot = self.outgoing_call.info().conf_slot
+      lib.conf_disconnect(slot, 0)
+      self.speaker_attached = False
+
   def bridge(self, callback):
     lib = pj.Lib.instance()
     lck = lib.auto_lock()
@@ -338,12 +364,21 @@ try:
 
       if p1 == 'mic':
         connection.attach_mic()
-      elif p1 == 'spaker':
+      elif p1 == 'speaker':
         connection.attach_speaker()
       else:
         connection.attach()
     elif c == 'detach':
-      pass
+      connection = get_connection(p1, p2)
+      if connection == None:
+        continue
+
+      if p1 == 'mic':
+        connection.detach_mic()
+      elif p1 == 'spaker':
+        connection.detach_speaker()
+      else:
+        connection.detach()
     elif c == 'help':
       print "Possible commands:"
       print "  list, show       - show all active connections"
