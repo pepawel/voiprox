@@ -6,6 +6,7 @@ import pjsua as pj
 import re
 import readline
 import logging as log
+import time
 
 class Connection:
   collection = {}
@@ -33,6 +34,10 @@ class Connection:
     # Mark as calling (will be removed when bridged)
     self.calling = True
 
+    # Bridge method needs to be called two times, first one is skipped.
+    # This is probably caused by bug in pjsip.
+    self.bridge_attempts = 0
+
     # Mark connection as not terminated
     self.terminated = False
 
@@ -57,31 +62,40 @@ class Connection:
     self.incoming_call.answer()
 
   def bridge(self, callback):
-    if isinstance(callback, InCallCallback):
-      self.active_incoming = True
-    if isinstance(callback, OutCallCallback):
-      self.active_outgoing = True
-    log.debug("Incoming: {0}, Outgoing: {1}".format(self.active_incoming,
-        self.active_outgoing))
-    if self.active_incoming and self.active_outgoing:
-      in_slot = self.incoming_call.info().conf_slot
-      out_slot = self.outgoing_call.info().conf_slot
-      lib = pj.Lib.instance()
-      lib.conf_connect(in_slot, out_slot)
-      lib.conf_connect(out_slot, in_slot)
-      # Realtime sniffing
-      #lib.conf_connect(in_slot, 0)
-      #lib.conf_connect(out_slot, 0)
-      # Recording
-      recorder = lib.create_recorder("{0}-{1}-{2}.wav".format(self.id,
-        self.incoming_number, self.outgoing_number))
-      recorder_slot = lib.recorder_get_slot(recorder)
-      lib.conf_connect(in_slot, recorder_slot)
-      lib.conf_connect(out_slot, recorder_slot)
-      self.calling = False
-      log.debug('Calls bridged')
+    lib = pj.Lib.instance()
+    lck = lib.auto_lock()
+    if self.calling:
+      if isinstance(callback, InCallCallback):
+        self.active_incoming = True
+      if isinstance(callback, OutCallCallback):
+        self.active_outgoing = True
+      log.debug("Incoming: {0}, Outgoing: {1}".format(self.active_incoming,
+          self.active_outgoing))
+      if self.active_incoming and self.active_outgoing:
+        if self.bridge_attempts == 1:
+          in_slot = self.incoming_call.info().conf_slot
+          out_slot = self.outgoing_call.info().conf_slot
+          lib.conf_connect(in_slot, out_slot)
+          lib.conf_connect(out_slot, in_slot)
+          # Realtime sniffing
+          #lib.conf_connect(in_slot, 0)
+          #lib.conf_connect(out_slot, 0)
+          # Recording
+          formatted_date = time.strftime("%Y%m%d%H%M%S", time.gmtime())
+          recorder = lib.create_recorder("{0}-{1}-{2}.wav".format(self.incoming_number,
+            self.outgoing_number, formatted_date))
+          recorder_slot = lib.recorder_get_slot(recorder)
+          lib.conf_connect(in_slot, recorder_slot)
+          lib.conf_connect(out_slot, recorder_slot)
+          self.calling = False
+          log.debug('Calls bridged')
+        else:
+          log.debug('Bridge attempt {0} skipped due to probable bug in pjsip'.format(self.bridge_attempts))
+          self.bridge_attempts += 1
+      del lck
 
   def terminate(self):
+    lib = pj.Lib.instance()
     lck = lib.auto_lock()
     if not self.terminated:
       self.terminated = True
