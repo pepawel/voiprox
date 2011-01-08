@@ -34,6 +34,10 @@ class Connection:
     # Mark as calling (will be removed when bridged)
     self.calling = True
 
+    # Mic and speaker are not attached by default, mark connection appropriately
+    self.mic_attached = False
+    self.speaker_attached = False
+
     # Bridge method needs to be called two times, first one is skipped.
     # This is probably caused by bug in pjsip.
     self.bridge_attempts = 0
@@ -61,6 +65,32 @@ class Connection:
     log.debug("Answering incoming call")
     self.incoming_call.answer()
 
+  def attach(self):
+    self.attach_mic()
+    self.attach_speaker()
+
+  def attach_mic(self):
+    lib = pj.Lib.instance()
+    if self.active_incoming:
+      slot = self.incoming_call.info().conf_slot
+      lib.conf_connect(0, slot)
+      self.mic_attached = True
+    if self.active_outgoing:
+      slot = self.outgoing_call.info().conf_slot
+      lib.conf_connect(0, slot)
+      self.mic_attached = True
+
+  def attach_speaker(self):
+    lib = pj.Lib.instance()
+    if self.active_incoming:
+      slot = self.incoming_call.info().conf_slot
+      lib.conf_connect(slot, 0)
+      self.speaker_attached = True
+    if self.active_outgoing:
+      slot = self.outgoing_call.info().conf_slot
+      lib.conf_connect(slot, 0)
+      self.speaker_attached = True
+
   def bridge(self, callback):
     lib = pj.Lib.instance()
     lck = lib.auto_lock()
@@ -77,9 +107,6 @@ class Connection:
           out_slot = self.outgoing_call.info().conf_slot
           lib.conf_connect(in_slot, out_slot)
           lib.conf_connect(out_slot, in_slot)
-          # Realtime sniffing
-          #lib.conf_connect(in_slot, 0)
-          #lib.conf_connect(out_slot, 0)
           # Recording
           formatted_date = time.strftime("%Y%m%d%H%M%S", time.gmtime())
           recorder = lib.create_recorder("{0}-{1}-{2}.wav".format(self.incoming_number,
@@ -114,10 +141,19 @@ class Connection:
     return "sip:{0}@sip.freeconet.pl".format(number)
 
   def __str__(self):
+    flags = []
+    if self.calling:
+      flags.append('calling')
+    if self.mic_attached:
+      flags.append('@mic')
+    if self.speaker_attached:
+      flags.append('@speaker')
+    if len(flags) == 0:
+      flags = ''
+    else:
+      flags = ' (' + ', '.join(flags) + ')'
     return "{0}: {1} > {2}{3}".format(
-        self.id, self.incoming_number, self.outgoing_number,
-        (' (calling)' if self.calling else '')
-    )
+        self.id, self.incoming_number, self.outgoing_number, flags)
 
   @staticmethod
   def all():
@@ -170,6 +206,22 @@ class OutCallCallback(GlobCallCallback):
 # Logging callback for PJSIP library
 def log_cb(level, str, len):
   log.debug(str),
+
+# Common connection finding code with error checking
+def get_connection(p1, p2):
+  connection = None
+  if p1 == None and p2 == None:
+    print 'Connection id required.'
+    return None
+  id = p1 if type(p1) == type(1) else p2
+  if type(id) != type(1):
+    print 'Invalid connection id.'
+    return None
+  try:
+    connection = Connection.find(id)
+  except KeyError:
+    print 'Connection {0} not found.'.format(id)
+  return connection
 
 # Parse arguments
 args = sys.argv[1:]
@@ -268,14 +320,8 @@ try:
       for connection in Connection.all():
         print connection
     elif c == 'disconnect':
-      id = p1 if type(p1) == type(1) else p2
-      if type(id) != type(1):
-        print 'Invalid connection id.'
-        continue
-      try:
-        connection = Connection.find(id)
-      except KeyError:
-        print 'Connection {0} not found.'.format(id)
+      connection = get_connection(p1, p2)
+      if connection == None:
         continue
 
       if p1 == 'caller':
@@ -286,7 +332,16 @@ try:
         connection.terminate()
 
     elif c == 'attach':
-      pass
+      connection = get_connection(p1, p2)
+      if connection == None:
+        continue
+
+      if p1 == 'mic':
+        connection.attach_mic()
+      elif p1 == 'spaker':
+        connection.attach_speaker()
+      else:
+        connection.attach()
     elif c == 'detach':
       pass
     elif c == 'help':
