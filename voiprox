@@ -4,6 +4,7 @@
 import sys
 import pjsua as pj
 import re
+import readline
 import logging as log
 
 class Connection:
@@ -20,7 +21,7 @@ class Connection:
   def __init__(self, incoming_call):
     # Save the connection in class collection
     if len(Connection.collection) == 0:
-      self.id = 0
+      self.id = 1
     else:
       self.id = max(Connection.collection.keys()) + 1
     Connection.collection[self.id] = self
@@ -110,6 +111,10 @@ class Connection:
     for i in sorted(Connection.collection.keys()):
       result.append(Connection.collection[i])
     return result
+
+  @staticmethod
+  def find(id):
+    return Connection.collection[id]
 
   @staticmethod
   def terminate_all():
@@ -235,11 +240,11 @@ try:
     # Typecast p1 and p2 to integers if possible
     try:
       p1 = int(p1)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
       pass
     try:
       p2 = int(p2)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
       pass
 
     # Commands processing logic goes here
@@ -249,7 +254,23 @@ try:
       for connection in Connection.all():
         print connection
     elif c == 'disconnect':
-      pass
+      id = p1 if type(p1) == type(1) else p2
+      if type(id) != type(1):
+        print 'Invalid connection id.'
+        continue
+      try:
+        connection = Connection.find(id)
+      except KeyError:
+        print 'Connection {0} not found.'.format(id)
+        continue
+
+      if p1 == 'caller':
+        connection.terminate_incoming()
+      elif p1 == 'callee':
+        connection.terminate_outgoing()
+      else:
+        connection.terminate()
+
     elif c == 'attach':
       pass
     elif c == 'detach':
