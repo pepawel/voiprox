@@ -45,6 +45,11 @@ class Connection:
     # Mark connection as not terminated
     self.terminated = False
 
+    # When one peer terminates the other one will also terminate and entire
+    # connection will be destroyed from pool. This feature is called auto_terminate.
+    # It can be turned of if user choose to manually disconnect one peer.
+    self.auto_terminate = True
+
     # Save incoming call parameters
     self.incoming_call = incoming_call
 
@@ -152,13 +157,32 @@ class Connection:
     lck = lib.auto_lock()
     if not self.terminated:
       self.terminated = True
-      if self.incoming_call.info().state != pj.CallState.DISCONNECTED:
-        self.incoming_call.hangup()
-      if self.outgoing_call.info().state != pj.CallState.DISCONNECTED:
-        self.outgoing_call.hangup()
+      self.terminate_incoming()
+      self.terminate_outgoing()
       del Connection.collection[self.id]
-      log.debug("Terminated connection {0}".format(self.id))
+      log.debug("Destroyed connection {0}".format(self.id))
     del lck
+
+  def mark_call_inactive(self, callback):
+    cb = callback.__class__.__name__
+    if cb == 'InCallCallback':
+      self.active_incoming = False
+    elif cb == 'OutCallCallback':
+      self.active_outgoing = False
+    else:
+      log.fatal('Unable to identify call.')
+
+  def terminate_incoming(self):
+    if self.active_incoming and self.incoming_call.info().state != pj.CallState.DISCONNECTED:
+      self.incoming_call.hangup()
+    self.active_incoming = False
+    log.debug("Terminated incoming for connection {0}".format(self.id))
+
+  def terminate_outgoing(self):
+    if self.active_outgoing and self.outgoing_call.info().state != pj.CallState.DISCONNECTED:
+      self.outgoing_call.hangup()
+    self.active_outgoing = False
+    log.debug("Terminated outgoing for connection {0}".format(self.id))
 
   def extract_number(self, text):
     return re.match('^.*sip:(.+)@.+.freeconet.pl.*$', text).group(1)
@@ -170,6 +194,11 @@ class Connection:
     flags = []
     if self.calling:
       flags.append('calling')
+    else:
+      if self.active_incoming == False:
+        flags.append('caller not connected')
+      if self.active_outgoing == False:
+        flags.append('callee not connected')
     if self.mic_attached:
       flags.append('@mic')
     if self.speaker_attached:
@@ -216,7 +245,12 @@ class GlobCallCallback(pj.CallCallback):
       self.connection.bridge(self)
   def on_state(self):
     if self.call.info().state == pj.CallState.DISCONNECTED:
-      self.connection.terminate()
+      c = self.connection
+      c.mark_call_inactive(self)
+      if c.auto_terminate:
+        c.terminate()
+      elif not c.active_incoming and not c.active_outgoing:
+        c.terminate()
 
 class InCallCallback(GlobCallCallback):
   pass
@@ -351,8 +385,10 @@ try:
         continue
 
       if p1 == 'caller':
+        connection.auto_terminate = False
         connection.terminate_incoming()
       elif p1 == 'callee':
+        connection.auto_terminate = False
         connection.terminate_outgoing()
       else:
         connection.terminate()
