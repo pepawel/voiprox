@@ -185,6 +185,7 @@ class Connection:
           lib.conf_connect(out_slot, recorder_slot)
           self.calling = False
           log.debug('Calls bridged')
+          beep()
         else:
           log.debug('Bridge attempt {0} skipped due to probable bug in pjsip'.format(self.bridge_attempts))
           self.bridge_attempts += 1
@@ -305,6 +306,14 @@ class OutCallCallback(GlobCallCallback):
 def log_cb(level, str, len):
   log.debug(str),
 
+def beep():
+  lib = pj.Lib.instance()
+  player = lib.create_player('beep.wav')
+  player_slot = lib.player_get_slot(player)
+  lib.conf_connect(player_slot, 0)
+  time.sleep(0.3)
+  lib.player_destroy(player)
+
 # Common connection finding code with error checking
 def get_connection(p1, p2):
   connection = None
@@ -379,6 +388,7 @@ try:
 
   print 'VOIPROX 1.0 ready to intercept calls.'
   print 'Type "help" for a list of commands.'
+  beep()
 
   # Start command loop
   while(1):
