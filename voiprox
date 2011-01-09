@@ -38,6 +38,9 @@ class Connection:
     self.mic_attached = False
     self.speaker_attached = False
 
+    # Recorder reference for use when attaching/detaching
+    self.recorder = None
+
     # Bridge method needs to be called two times, first one is skipped.
     # This is probably caused by bug in pjsip.
     self.bridge_attempts = 0
@@ -76,14 +79,18 @@ class Connection:
 
   def attach_mic(self):
     lib = pj.Lib.instance()
+    recorder_slot = lib.recorder_get_slot(self.recorder)
     if self.active_incoming:
       slot = self.incoming_call.info().conf_slot
       lib.conf_connect(0, slot)
+      lib.conf_connect(0, recorder_slot)
       self.mic_attached = True
     if self.active_outgoing:
       slot = self.outgoing_call.info().conf_slot
       lib.conf_connect(0, slot)
+      lib.conf_connect(0, recorder_slot)
       self.mic_attached = True
+
 
   def attach_speaker(self):
     lib = pj.Lib.instance()
@@ -102,13 +109,16 @@ class Connection:
 
   def detach_mic(self):
     lib = pj.Lib.instance()
+    recorder_slot = lib.recorder_get_slot(self.recorder)
     if self.active_incoming:
       slot = self.incoming_call.info().conf_slot
       lib.conf_disconnect(0, slot)
+      lib.conf_disconnect(0, recorder_slot)
       self.mic_attached = False
     if self.active_outgoing:
       slot = self.outgoing_call.info().conf_slot
       lib.conf_disconnect(0, slot)
+      lib.conf_disconnect(0, recorder_slot)
       self.mic_attached = False
 
   def detach_speaker(self):
@@ -140,9 +150,8 @@ class Connection:
           lib.conf_connect(out_slot, in_slot)
           # Recording
           formatted_date = time.strftime("%Y%m%d%H%M%S", time.gmtime())
-          recorder = lib.create_recorder("{0}-{1}-{2}.wav".format(self.incoming_number,
-            self.outgoing_number, formatted_date))
-          recorder_slot = lib.recorder_get_slot(recorder)
+          self.recorder = lib.create_recorder("{0}-{1}-{2}.wav".format(self.incoming_number, self.outgoing_number, formatted_date))
+          recorder_slot = lib.recorder_get_slot(self.recorder)
           lib.conf_connect(in_slot, recorder_slot)
           lib.conf_connect(out_slot, recorder_slot)
           self.calling = False
@@ -398,6 +407,10 @@ try:
       if connection == None:
         continue
 
+      if connection.calling:
+        print "Connection is not yet established."
+        continue
+
       if p1 == 'mic':
         connection.attach_mic()
       elif p1 == 'speaker':
@@ -407,6 +420,10 @@ try:
     elif c == 'detach':
       connection = get_connection(p1, p2)
       if connection == None:
+        continue
+
+      if connection.calling:
+        print "Connection is not yet established."
         continue
 
       if p1 == 'mic':
