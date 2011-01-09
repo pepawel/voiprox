@@ -38,8 +38,9 @@ class Connection:
     self.mic_attached = False
     self.speaker_attached = False
 
-    # Recorder reference for use when attaching/detaching
+    # Player/recorder reference for use when attaching/detaching
     self.recorder = None
+    self.player = None
 
     # Bridge method needs to be called two times, first one is skipped.
     # This is probably caused by bug in pjsip.
@@ -73,6 +74,28 @@ class Connection:
     log.debug("Answering incoming call")
     self.incoming_call.answer()
 
+  def play(self, file_name):
+    lib = pj.Lib.instance()
+    if self.player:
+      lib.player_destroy(self.player)
+      self.player = None
+    self.player = lib.create_player(file_name)
+
+    # Attach player to calls...
+    player_slot = lib.player_get_slot(self.player)
+    if self.active_incoming:
+      slot = self.incoming_call.info().conf_slot
+      lib.conf_connect(player_slot, slot)
+    if self.active_outgoing:
+      slot = self.outgoing_call.info().conf_slot
+      lib.conf_connect(player_slot, slot)
+    # ... to recorder ...
+    recorder_slot = lib.recorder_get_slot(self.recorder)
+    lib.conf_connect(player_slot, recorder_slot)
+    # ... and local speaker if attached
+    if self.speaker_attached:
+      lib.conf_connect(player_slot, 0)
+
   def attach(self):
     self.attach_mic()
     self.attach_speaker()
@@ -94,6 +117,9 @@ class Connection:
 
   def attach_speaker(self):
     lib = pj.Lib.instance()
+    if self.player:
+      player_slot = lib.player_get_slot(self.player)
+      lib.conf_connect(player_slot, 0)
     if self.active_incoming:
       slot = self.incoming_call.info().conf_slot
       lib.conf_connect(slot, 0)
@@ -123,6 +149,9 @@ class Connection:
 
   def detach_speaker(self):
     lib = pj.Lib.instance()
+    if self.player:
+      player_slot = lib.player_get_slot(self.player)
+      lib.conf_disconnect(player_slot, 0)
     if self.active_incoming:
       slot = self.incoming_call.info().conf_slot
       lib.conf_disconnect(slot, 0)
@@ -432,6 +461,30 @@ try:
         connection.detach_speaker()
       else:
         connection.detach()
+    elif c == 'play':
+      connection = None
+      if p1 == None:
+        print 'Filename required.'
+        continue
+      if p2 == None:
+        print 'Connection id required.'
+        continue
+      if type(p2) != type(1):
+        print 'Invalid connection id.'
+        continue
+      try:
+        connection = Connection.find(p2)
+      except KeyError:
+        print 'Connection {0} not found.'.format(p2)
+        continue
+      if connection.calling:
+        print "Connection is not yet established."
+        continue
+      try:
+        connection.play(p1)
+      except pj.Error:
+        print 'Playing file "{0}" failed.'.format(p1)
+        continue
     elif c == 'help':
       print "Possible commands:"
       print "  list, show       - show all active connections"
@@ -443,6 +496,8 @@ try:
       print "                   - attach local microphone or speaker to given connection;"
       print "                     if mic/speaker keyword not given both will be attached"
       print "  detach [mic|speaker] [from] connection - analogical to attach"
+      print "  play file.wav [to] connection"
+      print "                   - play wav file (no spaces allowed in file name)"
       print "  help             - show this help"
       print "  quit, exit or ^D - terminate all active connections and quit"
     else:
