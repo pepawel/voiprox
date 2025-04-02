@@ -1,6 +1,6 @@
 VOIPROX is a proof of concept created to demonstrate vulnerability in Freeconet
-VoIP platform (www.freeconet.pl). You can find more details (in Polish language) at:
+VoIP platform (www.freeconet.pl). You can find more details at:
 
-http://www.cryptonix.org/papers/freeconet/
+https://blog.pawelpokrywka.com/p/freeconet-intercepting-voip-calls
 
-VOIPROX was written by Pawel Pokrywka, http://www.cryptonix.org
+VOIPROX was written by Pawel Pokrywka, https://blog.pawelpokrywka.com/
